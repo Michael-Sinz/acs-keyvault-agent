@@ -37,7 +37,6 @@ from cryptography.hazmat.primitives.serialization import pkcs12
 from adal import AuthenticationContext
 from azure.keyvault import KeyVaultClient
 from msrestazure.azure_active_directory import AdalAuthentication, MSIAuthentication
-# from OpenSSL import crypto
 
 logging.basicConfig(level=logging.INFO,
                     format='|%(asctime)s|%(levelname)-5s|%(process)d|%(thread)d|%(name)s|%(message)s')
