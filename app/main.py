@@ -31,6 +31,9 @@ import logging
 import base64
 import requests
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.serialization import pkcs12
 from adal import AuthenticationContext
 from azure.keyvault import KeyVaultClient
 from msrestazure.azure_active_directory import AdalAuthentication, MSIAuthentication
@@ -344,12 +347,19 @@ class KeyVaultAgent(object):
                     cert_file.write(self._cert_to_pem(cert.cer))
 
     def _dump_pfx(self, pfx, cert_filename, key_filename):
-        p12 = crypto.load_pkcs12(base64.b64decode(pfx))
-        pk = crypto.dump_privatekey(crypto.FILETYPE_PEM, p12.get_privatekey())
+        # p12 = crypto.load_pkcs12(base64.b64decode(pfx))
+        # pk = crypto.dump_privatekey(crypto.FILETYPE_PEM, p12.get_privatekey())
+        pk, certificate, additional_certificates = pkcs12.load_key_and_certificates(
+            base64.b64decode(pfx),
+            None,
+            default_backend()
+        )
         if os.getenv('DOWNLOAD_CA_CERTIFICATES','true').lower() == "true":
-            certs = (p12.get_certificate(),) + (p12.get_ca_certificates() or ())
+            # certs = (p12.get_certificate(),) + (p12.get_ca_certificates() or ())
+            certs = (certificate,) + (tuple(additional_certificates) or ())
         else:
-            certs = (p12.get_certificate(),)
+            # certs = (p12.get_certificate(),)
+            certs = (certificate,)
 
         if (cert_filename == key_filename):
             key_path = os.path.join(self._keys_output_folder, key_filename)
@@ -360,13 +370,24 @@ class KeyVaultAgent(object):
             cert_path = os.path.join(self._cert_keys_output_folder, cert_filename)
 
         _logger.info('Dumping key value to: %s', key_path)
-        with open(key_path, 'w') as key_file:
-            key_file.write(pk.decode())
+        # with open(key_path, 'w') as key_file:
+        #     key_file.write(pk.decode())
+        with open(key_path, 'wb') as key_file:
+            key_file.write(pk.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
 
         _logger.info('Dumping certs to: %s', cert_path)
-        with open(cert_path, 'w') as cert_file:
+        # with open(cert_path, 'w') as cert_file:
+        #     for cert in certs:
+        #         cert_file.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert).decode())
+        with open(cert_path, 'wb') as cert_file:
             for cert in certs:
-                cert_file.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert).decode())
+                cert_file.write(cert.public_bytes(
+                    encoding=serialization.Encoding.PEM
+                ))
 
     @staticmethod
     def _dump_secret(secret):
