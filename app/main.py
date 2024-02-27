@@ -165,6 +165,128 @@ class KeyVaultAgent(object):
             _logger.error('Exception occured while trying to auto detect AAD tenant. Using the config default %s', tenant_id_from_config)
         return tenant_id_from_config
 
+    def _get_kubernetes_api_instance(self):
+        if self._api_instance is None:
+            config.load_incluster_config()
+            client.configuration.assert_hostname = False
+            self._api_instance = client.CoreV1Api()
+
+        return self._api_instance
+
+    def _get_kubernetes_secrets_list(self):
+        if self._secrets_list is None:
+            api_instance = self._get_kubernetes_api_instance()
+            api_response = api_instance.list_namespaced_secret(namespace=self._secrets_namespace)
+
+            secret_name_list = []
+            should_continue = True
+
+            while should_continue is True:
+                continue_value = api_response.metadata._continue
+                secrets_list = api_response.items
+                for item in secrets_list:
+                    secret_name_list.append(item.metadata.name)
+
+                if continue_value is not None:
+                    api_response = api_instance.list_namespaced_secret(namespace=self._secrets_namespace, _continue = continue_value)
+                else:
+                    should_continue = False
+
+            self._secrets_list = secret_name_list
+
+        return self._secrets_list
+
+    def _create_kubernetes_secret_objects(self, key, secret_value, secret_type):
+        key = key.lower()
+        api_instance = self._get_kubernetes_api_instance()
+        secret = client.V1Secret()
+
+        secret.metadata = client.V1ObjectMeta(name=key)
+        secret.type = secret_type
+
+        if secret.type == 'kubernetes.io/tls':
+            _logger.info('Extracting private key and certificate.')
+            # p12 = crypto.load_pkcs12(base64.b64decode(secret_value))
+            privateKey, certificate, additional_certificates = pkcs12.load_key_and_certificates(
+                base64.b64decode(secret_value),
+                None,
+                default_backend()
+            )
+            ca_certs = ()
+            if os.getenv('DOWNLOAD_CA_CERTIFICATES','true').lower() == "true":
+                # ca_certs = (p12.get_ca_certificates() or ())
+                # certs = (p12.get_certificate(),) + ca_certs
+                certs = (certificate,) + (tuple(additional_certificates) or ())
+            else:
+                # certs = (p12.get_certificate(),)
+                certs = (certificate,)
+            # privateKey = crypto.dump_privatekey(crypto.FILETYPE_PEM, p12.get_privatekey())
+            certString = ""
+            for cert in certs:
+                certString += crypto.dump_certificate(crypto.FILETYPE_PEM, cert).decode()
+            secret.data = { 'tls.crt' : base64.b64encode(certString.encode()).decode(), 'tls.key' : base64.b64encode(privateKey).decode() }
+            if ca_certs:
+                ca_certs_string = ""
+                for cert in ca_certs:
+                    ca_certs_string += crypto.dump_certificate(crypto.FILETYPE_PEM, cert).decode()
+                secret.data.update({'ca.crt': base64.b64encode(ca_certs_string.encode()).decode()})
+
+        else:
+            secretDataKey = key.upper() + "_SECRETS_DATA_KEY"
+            secret_data_key = os.getenv(secretDataKey, 'secret')
+            secret.data = { secret_data_key : base64.b64encode(secret_value.encode()).decode() }
+
+        secrets_list = self._get_kubernetes_secrets_list()
+
+        _logger.info('Creating or updating Kubernetes Secret object: %s', key)
+        try:
+            if key in secrets_list:
+                api_instance.patch_namespaced_secret(name=key, namespace=self._secrets_namespace, body=secret)
+            else:
+                api_instance.create_namespaced_secret(namespace=self._secrets_namespace, body=secret)
+        except:
+            _logger.exception("Failed to create or update Kubernetes Secret")
+
+    def grab_secrets_kubernetes_objects(self):
+        """
+        Gets secrets from KeyVault and creates them as Kubernetes secrets objects
+        """
+        vault_base_url = os.getenv('VAULT_BASE_URL')
+        secrets_keys = os.getenv('SECRETS_KEYS')
+        self._secrets_namespace = os.getenv('SECRETS_NAMESPACE','default')
+
+        client = self._get_client()
+        _logger.info('Using vault: %s', vault_base_url)
+
+        # Retrieving all secrets from Key Vault if specified by user
+        if secrets_keys is None:
+            _logger.info('Retrieving all secrets from Key Vault.')
+
+            all_secrets = list(client.get_secrets(vault_base_url))
+            secrets_keys = ';'.join([secret.id.split('/')[-1] for secret in all_secrets])
+
+        if secrets_keys is not None:
+            for key_info in filter(None, secrets_keys.split(';')):
+                key_name, key_version, cert_filename, key_filename = self._split_keyinfo(key_info)
+                _logger.info('Retrieving secret name:%s with version: %s output certFileName: %s keyFileName: %s', key_name, key_version, cert_filename, key_filename)
+                secret = client.get_secret(vault_base_url, key_name, key_version)
+
+                secretTypeEnvKey = key_name.upper() + "_SECRET_TYPE"
+                secret_type = os.getenv(secretTypeEnvKey, os.getenv("SECRETS_TYPE", 'Opaque'))
+                if secret_type == 'kubernetes.io/tls':
+                    if secret.kid is not None:
+                        _logger.info('Secret is backing certificate.')
+                        if secret.content_type == 'application/x-pkcs12':
+                            self._create_kubernetes_secret_objects(key_name, secret.value, secret_type)
+                        else:
+                            _logger.error('Secret is not in pkcs12 format')
+                            sys.exit(1)
+                    elif (key_name != cert_filename):
+                        _logger.error('Cert filename provided for secret %s not backing a certificate.', key_name)
+                        sys.exit(('Error: Cert filename provided for secret {0} not backing a certificate.').format(key_name))
+                else:
+                    self._create_kubernetes_secret_objects(key_name, secret.value, secret_type)
+
     def grab_secrets(self):
         """
         Gets secrets from KeyVault and stores them in a folder
