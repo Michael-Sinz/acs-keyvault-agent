@@ -31,6 +31,8 @@ import logging
 import base64
 import requests
 
+from kubernetes import client, config
+# from kubernetes.client.rest import ApiException # TODO: remove this, it's probably not necessary
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.serialization import pkcs12
@@ -206,7 +208,7 @@ class KeyVaultAgent(object):
 
         if secret.type == 'kubernetes.io/tls':
             _logger.info('Extracting private key and certificate.')
-            # p12 = crypto.load_pkcs12(base64.b64decode(secret_value))
+            # p12 = crypto.load_pkcs12(base64.b64decode(secret_value)) # TODO: remove this, it's probably not necessary
             privateKey, certificate, additional_certificates = pkcs12.load_key_and_certificates(
                 base64.b64decode(secret_value),
                 None,
@@ -214,13 +216,13 @@ class KeyVaultAgent(object):
             )
             ca_certs = ()
             if os.getenv('DOWNLOAD_CA_CERTIFICATES','true').lower() == "true":
-                # ca_certs = (p12.get_ca_certificates() or ())
-                # certs = (p12.get_certificate(),) + ca_certs
+                # ca_certs = (p12.get_ca_certificates() or ()) # TODO: remove this, it's probably not necessary
+                # certs = (p12.get_certificate(),) + ca_certs # TODO: remove this, it's probably not necessary
                 certs = (certificate,) + (tuple(additional_certificates) or ())
             else:
-                # certs = (p12.get_certificate(),)
+                # certs = (p12.get_certificate(),) # TODO: remove this, it's probably not necessary
                 certs = (certificate,)
-            # privateKey = crypto.dump_privatekey(crypto.FILETYPE_PEM, p12.get_privatekey())
+            # privateKey = crypto.dump_privatekey(crypto.FILETYPE_PEM, p12.get_privatekey()) # TODO: remove this, it's probably not necessary
             certString = ""
             for cert in certs:
                 certString += crypto.dump_certificate(crypto.FILETYPE_PEM, cert).decode()
