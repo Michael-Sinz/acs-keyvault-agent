@@ -419,5 +419,8 @@ class KeyVaultAgent(object):
 
 if __name__ == '__main__':
     _logger.info('Grabbing secrets from Key Vault')
-    KeyVaultAgent().grab_secrets()
+    if os.getenv('CREATE_KUBERNETES_SECRETS','false').lower() == "true":
+        KeyVaultAgent().grab_secrets_kubernetes_objects()
+    else:
+        KeyVaultAgent().grab_secrets()
     _logger.info('Done!')
