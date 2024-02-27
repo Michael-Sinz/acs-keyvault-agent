@@ -33,6 +33,7 @@ import requests
 
 from kubernetes import client, config
 # from kubernetes.client.rest import ApiException # TODO: remove this, it's probably not necessary
+from OpenSSL import crypto
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.serialization import pkcs12
