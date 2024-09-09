@@ -34,6 +34,7 @@ import requests
 from adal import AuthenticationContext
 from azure.keyvault import KeyVaultClient
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.serialization import pkcs12
 from msrestazure.azure_active_directory import AdalAuthentication, MSIAuthentication
 from kubernetes import client, config
 
@@ -208,7 +209,8 @@ class KeyVaultAgent(object):
             # Use cryptography to deserialize a PKCS12. Get the private key and certificates.
             # Note we don't need to pass any backend argument, as it is not required
             # and its use has been deprecated already.
-            (privateKey, certificate, additional_certificates) = serialization.pkcs12.load_key_and_certificates(
+            # (privateKey, certificate, additional_certificates) = serialization.pkcs12.load_key_and_certificates(
+            (privateKey, certificate, additional_certificates) = pkcs12.load_key_and_certificates(
                 base64.b64decode(secret_value),
                 None
             )
@@ -356,7 +358,8 @@ class KeyVaultAgent(object):
         # Use cryptography to deserialize a PKCS12. Get the private key and certificates.
         # Note we don't need to pass any backend argument, as it is not required
         # and its use has been deprecated already.
-        (pk, certificate, additional_certificates) = serialization.pkcs12.load_key_and_certificates(
+        # (pk, certificate, additional_certificates) = serialization.pkcs12.load_key_and_certificates(
+        (pk, certificate, additional_certificates) = pkcs12.load_key_and_certificates(
             base64.b64decode(pfx),
             None
         )
